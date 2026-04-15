@@ -6,7 +6,7 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBClassifier
 from imblearn.over_sampling import SMOTE
-from sklearn.metrics import accuracy_score, recall_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score
 import joblib
 import os
 
@@ -17,29 +17,32 @@ df_zika = pd.read_excel(url, sheet_name='ZIKA')
 df_chik = pd.read_excel(url, sheet_name='CHIKUNGUNYA')
 df_flu = pd.read_excel(url, sheet_name='INFLUENZA')
 
-# Adicionar coluna de diagnóstico
 df_dengue['DIAGNOSTICO'] = 'Dengue'
 df_zika['DIAGNOSTICO'] = 'Zika'
 df_chik['DIAGNOSTICO'] = 'Chikungunya'
 df_flu['DIAGNOSTICO'] = 'Influenza'
 
-# Concatenar
 df = pd.concat([df_dengue, df_zika, df_chik, df_flu], ignore_index=True)
 
-# 2. Selecionar apenas colunas numéricas (features)
-# Identificar colunas que são sintomas (excluir 'Pathology' e 'DIAGNOSTICO')
-feature_cols = [col for col in df.columns if col not in ['DIAGNOSTICO', 'Pathology']]
+# 2. Selecionar apenas sintomas relevantes (com base na literatura)
+sintomas_relevantes = [
+    'Fever', 'Headache', 'Myalgia', 'Arthralgia', 'Rash',
+    'Retro-orbital pain', 'Vomiting', 'Abdominal pain', 'Diarrhea',
+    'Conjunctivitis', 'Pruritus', 'Cough', 'Lymphadenopathy'
+]
+# Verificar quais existem no dataset
+feature_cols = [s for s in sintomas_relevantes if s in df.columns]
+print(f"Features selecionadas: {len(feature_cols)}")
+print(feature_cols)
+
 X = df[feature_cols]
 y = df['DIAGNOSTICO']
 
-print(f"Features numéricas: {len(feature_cols)}")
-print(f"Total amostras: {len(df)}")
-
-# 3. Codificar target (doenças)
+# 3. Codificar target
 le_disease = LabelEncoder()
 y_enc = le_disease.fit_transform(y)
 
-# 4. Divisão treino/teste (doenças)
+# 4. Divisão treino/teste
 X_train, X_test, y_train, y_test = train_test_split(
     X, y_enc, test_size=0.3, random_state=42, stratify=y_enc
 )
@@ -49,11 +52,11 @@ scaler_disease = StandardScaler()
 X_train_scaled = scaler_disease.fit_transform(X_train)
 X_test_scaled = scaler_disease.transform(X_test)
 
-# 6. SMOTE para balanceamento
+# 6. SMOTE
 smote = SMOTE(random_state=42)
 X_train_bal, y_train_bal = smote.fit_resample(X_train_scaled, y_train)
 
-# 7. Modelos para classificação de doenças
+# 7. Modelos
 rf = RandomForestClassifier(n_estimators=200, max_depth=10, random_state=42, n_jobs=-1)
 rf.fit(X_train_bal, y_train_bal)
 
@@ -63,26 +66,24 @@ xgb.fit(X_train_bal, y_train_bal)
 y_pred_rf = rf.predict(X_test_scaled)
 y_pred_xgb = xgb.predict(X_test_scaled)
 
-print("\n=== Modelo 1 - Classificação de Doenças ===")
+print("\n=== Modelo de Classificação de Doenças (apenas sintomas relevantes) ===")
 print(f"RF - Acurácia: {accuracy_score(y_test, y_pred_rf):.4f}")
 print(f"XGB - Acurácia: {accuracy_score(y_test, y_pred_xgb):.4f}")
 
 best_disease = xgb if f1_score(y_test, y_pred_xgb, average='macro') >= f1_score(y_test, y_pred_rf, average='macro') else rf
 
-# 8. Modelo de risco da dengue (baseado em sintomas de alarme)
+# 8. Modelo de risco da dengue (usando mesmos sintomas)
 sinais_alarme = [
     'Abdominal pain', 'Vomiting', 'Bleeding', 'Mucosal bleeding',
     'Lethargy', 'Hepatomegaly', 'Plasma leakage', 'Shock',
     'Impaired consciousness'
 ]
+# Filtrar apenas os que estão em feature_cols
+sinais_alarme_presentes = [s for s in sinais_alarme if s in feature_cols]
 
 df_dengue_only = df[df['DIAGNOSTICO'] == 'Dengue'].copy()
-presentes = [s for s in sinais_alarme if s in df_dengue_only.columns]
-df_dengue_only['num_alarme'] = df_dengue_only[presentes].sum(axis=1)
+df_dengue_only['num_alarme'] = df_dengue_only[sinais_alarme_presentes].sum(axis=1)
 df_dengue_only['RISCO'] = (df_dengue_only['num_alarme'] >= 2).astype(int)
-
-print("\nDistribuição do risco da dengue (regra clínica):")
-print(df_dengue_only['RISCO'].value_counts(normalize=True))
 
 X_risk = df_dengue_only[feature_cols]
 y_risk = df_dengue_only['RISCO']
@@ -107,7 +108,7 @@ xgb_risk.fit(X_risk_train_bal, y_risk_train_bal)
 y_risk_pred_rf = rf_risk.predict(X_risk_test_scaled)
 y_risk_pred_xgb = xgb_risk.predict(X_risk_test_scaled)
 
-print("\n=== Modelo 2 - Risco da Dengue ===")
+print("\n=== Modelo de Risco da Dengue ===")
 print(f"RF - Acurácia: {accuracy_score(y_risk_test, y_risk_pred_rf):.4f}")
 print(f"XGB - Acurácia: {accuracy_score(y_risk_test, y_risk_pred_xgb):.4f}")
 

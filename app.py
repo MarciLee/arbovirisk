@@ -3,7 +3,7 @@ import streamlit as st
 import numpy as np
 import joblib
 
-# Carregar modelos e artefatos (com cache)
+# Carregar modelos
 @st.cache_resource
 def load_models():
     modelo_doenca = joblib.load('models/modelo_doenca.pkl')
@@ -23,8 +23,7 @@ except Exception as e:
     st.error(f"Erro ao carregar modelos: {e}")
     model_loaded = False
 
-# Mapeamento de códigos para nomes de sintomas em português
-# (Use os nomes exatos que aparecem no dataset)
+# Mapeamento para nomes em português (apenas sintomas relevantes)
 sintomas_pt = {
     'Fever': 'Febre',
     'Headache': 'Dor de cabeça',
@@ -35,12 +34,10 @@ sintomas_pt = {
     'Vomiting': 'Vômito',
     'Abdominal pain': 'Dor abdominal',
     'Diarrhea': 'Diarreia',
-    'Cough': 'Tosse',
-    'Fatigue': 'Fadiga',
-    'Pruritus': 'Coceira',
     'Conjunctivitis': 'Conjuntivite',
-    'Lymphadenopathy': 'Gânglios inchados',
-    # Adicione outros conforme necessário
+    'Pruritus': 'Coceira',
+    'Cough': 'Tosse',
+    'Lymphadenopathy': 'Gânglios inchados'
 }
 
 def get_sintoma_nome(codigo):
@@ -49,16 +46,17 @@ def get_sintoma_nome(codigo):
 # Configuração da página
 st.set_page_config(page_title="ArboviRisk", page_icon="🦟", layout="wide")
 st.title("🦟 ArboviRisk - Diagnóstico Inteligente")
-st.markdown("Selecione os sintomas do paciente para obter um diagnóstico provável.")
+st.markdown("Selecione os sintomas do paciente para obter um diagnóstico provável (Dengue, Zika ou Chikungunya).")
 
-# Sidebar com informações
+# Sidebar
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2865/2865918.png", width=100)
     st.markdown("## Sobre")
     st.info(
-        "**Acurácia do modelo:** 98,2% (doenças)\n\n"
+        "**Acurácia do modelo:** ~98% (doenças)\n\n"
         "**Base:** 48.214 casos sintéticos (Zenodo)\n\n"
-        "**Diretrizes:** PAHO 2022"
+        "**Diretrizes:** PAHO 2022\n\n"
+        "**Nota:** Se o diagnóstico não for Dengue, Zika ou Chikungunya, será exibido 'Não identificado'."
     )
     st.markdown("---")
     st.markdown("### Recomendações")
@@ -66,7 +64,7 @@ with st.sidebar:
     st.caption("🚨 **Dengue com sinais de alarme:** procure atendimento urgente.")
     st.caption("🦟 **Zika/Chikungunya:** alívio dos sintomas e acompanhamento médico.")
 
-# Criar checkboxes para cada sintoma (usando nomes amigáveis)
+# Criar checkboxes em colunas (agora com menos sintomas)
 cols = st.columns(3)
 inputs = {}
 for i, sintoma_codigo in enumerate(feature_names):
@@ -78,23 +76,31 @@ if st.button("🔍 Diagnosticar", type="primary"):
     if not model_loaded:
         st.error("Modelos não carregados. Verifique os arquivos na pasta 'models'.")
     else:
-        # Montar vetor na ordem correta
+        # Montar vetor
         features = np.array([[1 if inputs[s] else 0 for s in feature_names]])
-        # Normalizar
         features_scaled = scaler_doenca.transform(features)
-        # Predição da doença
         pred = modelo_doenca.predict(features_scaled)[0]
         probas = modelo_doenca.predict_proba(features_scaled)[0]
-        doenca = le_doenca.inverse_transform([pred])[0]
+        doenca_raw = le_doenca.inverse_transform([pred])[0]
         confianca = max(probas)
+        
+        # Mapear para exibição: apenas Dengue, Zika, Chikungunya são consideradas; outras viram "Não identificado"
+        if doenca_raw in ['Dengue', 'Zika', 'Chikungunya']:
+            doenca = doenca_raw
+        else:
+            doenca = "Não identificado"
         
         st.subheader("📊 Resultado do Diagnóstico")
         st.write(f"**Doença provável:** {doenca}")
-        st.write(f"**Confiança:** {confianca:.0%}")
-        st.progress(confianca)
+        if doenca != "Não identificado":
+            st.write(f"**Confiança:** {confianca:.0%}")
+            st.progress(confianca)
+        else:
+            st.write(f"**Confiança (outra doença):** {confianca:.0%}")
+            st.progress(confianca)
         
         # Se for dengue, classificar risco
-        if doenca == "Dengue":
+        if doenca_raw == "Dengue":
             risco_scaled = scaler_risco.transform(features)
             risco_pred = modelo_risco.predict(risco_scaled)[0]
             risco_proba = modelo_risco.predict_proba(risco_scaled)[0][1]
@@ -103,16 +109,15 @@ if st.button("🔍 Diagnosticar", type="primary"):
             st.write(f"**Confiança do risco:** {risco_proba:.0%}")
             st.progress(risco_proba)
             
-            # Recomendação contextual
             if risco_pred == 1:
                 st.error("🚨 **Recomendação:** RISCO! Procure atendimento médico imediatamente.")
             else:
                 st.success("🩺 **Recomendação:** Hidratação, repouso e monitoramento. Procure um posto de saúde se os sintomas piorarem.")
-        elif doenca == "Zika":
+        elif doenca_raw == "Zika":
             st.info("🦟 **Recomendação:** Repouso, hidratação e evite medicamentos à base de ácido acetilsalicílico.")
-        elif doenca == "Chikungunya":
+        elif doenca_raw == "Chikungunya":
             st.warning("🦟 **Recomendação:** Analgésicos para dores articulares e repouso.")
         else:
-            st.info("🤧 **Recomendação:** Tratamento sintomático e acompanhamento médico.")
+            st.info("🤧 **Recomendação:** Os sintomas não correspondem às arboviroses avaliadas. Consulte um médico para investigação adicional.")
         
         st.info("⚠️ Esta ferramenta é apenas um auxílio ao diagnóstico. Procure um médico em caso de sintomas graves.")
