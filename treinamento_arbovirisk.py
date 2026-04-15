@@ -25,11 +25,16 @@ df = pd.concat([df_dengue, df_zika, df_chik], ignore_index=True)
 
 # 2. Selecionar apenas sintomas relevantes (baseado nas diretrizes PAHO + literatura)
 sintomas_relevantes = [
-    'Fever', 'Headache', 'Myalgia', 'Arthralgia', 'Rash', 'Retro-orbital pain',
-    'Vomiting', 'Abdominal pain', 'Diarrhea', 'Cough', 'Fatigue', 'Pruritus',
-    'Conjunctivitis', 'Lymphadenopathy', 'Petechiae', 'Bleeding', 'Mucosal bleeding',
-    'Lethargy', 'Hepatomegaly', 'Plasma leakage', 'Shock', 'Impaired consciousness',
-    'Leucopenia', 'Thrombocytopenia'
+    'Fever',                # Febre
+    'Headache',             # Dor de cabeça
+    'Myalgia',              # Dor muscular
+    'Arthralgia',           # Dor nas articulações
+    'Rash',                 # Manchas na pele
+    'Retro-orbital pain',   # Dor atrás dos olhos
+    'Vomiting',             # Vômito
+    'Abdominal pain',       # Dor abdominal
+    'Conjunctivitis',       # Conjuntivite
+    'Pruritus'              # Coceira
 ]
 
 # Garantir que todas as colunas existam
