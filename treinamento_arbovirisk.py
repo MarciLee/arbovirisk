@@ -1,4 +1,4 @@
-# treinar_arbovirisk_corrigido.py
+# treinamento_arbovirisk.py
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -16,86 +16,110 @@ df_dengue = pd.read_excel(url, sheet_name='DENGUE')
 df_zika = pd.read_excel(url, sheet_name='ZIKA')
 df_chik = pd.read_excel(url, sheet_name='CHIKUNGUNYA')
 df_flu = pd.read_excel(url, sheet_name='INFLUENZA')
+
+# Adicionar coluna de diagnóstico
 df_dengue['DIAGNOSTICO'] = 'Dengue'
 df_zika['DIAGNOSTICO'] = 'Zika'
 df_chik['DIAGNOSTICO'] = 'Chikungunya'
 df_flu['DIAGNOSTICO'] = 'Influenza'
+
+# Concatenar
 df = pd.concat([df_dengue, df_zika, df_chik, df_flu], ignore_index=True)
 
 # 2. Selecionar apenas colunas numéricas (features)
-feature_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+# Identificar colunas que são sintomas (excluir 'Pathology' e 'DIAGNOSTICO')
+feature_cols = [col for col in df.columns if col not in ['DIAGNOSTICO', 'Pathology']]
 X = df[feature_cols]
 y = df['DIAGNOSTICO']
 
 print(f"Features numéricas: {len(feature_cols)}")
 print(f"Total amostras: {len(df)}")
 
-# 3. Codificar target
+# 3. Codificar target (doenças)
 le_disease = LabelEncoder()
 y_enc = le_disease.fit_transform(y)
 
-# 4. Divisão treino/teste
-X_train, X_test, y_train, y_test = train_test_split(X, y_enc, test_size=0.3, random_state=42, stratify=y_enc)
+# 4. Divisão treino/teste (doenças)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y_enc, test_size=0.3, random_state=42, stratify=y_enc
+)
 
 # 5. Normalização
 scaler_disease = StandardScaler()
 X_train_scaled = scaler_disease.fit_transform(X_train)
 X_test_scaled = scaler_disease.transform(X_test)
 
-# 6. SMOTE
+# 6. SMOTE para balanceamento
 smote = SMOTE(random_state=42)
 X_train_bal, y_train_bal = smote.fit_resample(X_train_scaled, y_train)
 
-# 7. Modelos
+# 7. Modelos para classificação de doenças
 rf = RandomForestClassifier(n_estimators=200, max_depth=10, random_state=42, n_jobs=-1)
 rf.fit(X_train_bal, y_train_bal)
+
 xgb = XGBClassifier(n_estimators=150, max_depth=6, learning_rate=0.05, random_state=42, eval_metric='mlogloss')
 xgb.fit(X_train_bal, y_train_bal)
 
 y_pred_rf = rf.predict(X_test_scaled)
 y_pred_xgb = xgb.predict(X_test_scaled)
 
-print("\n=== Modelo 1 - Doença ===")
+print("\n=== Modelo 1 - Classificação de Doenças ===")
 print(f"RF - Acurácia: {accuracy_score(y_test, y_pred_rf):.4f}")
 print(f"XGB - Acurácia: {accuracy_score(y_test, y_pred_xgb):.4f}")
 
-rf_f1 = f1_score(y_test, y_pred_rf, average='macro')
-xgb_f1 = f1_score(y_test, y_pred_xgb, average='macro')
-best_disease = xgb if xgb_f1 >= rf_f1 else rf
+best_disease = xgb if f1_score(y_test, y_pred_xgb, average='macro') >= f1_score(y_test, y_pred_rf, average='macro') else rf
 
-# 8. Modelo de risco (apenas dengue) - usando as mesmas features numéricas
+# 8. Modelo de risco da dengue (baseado em sintomas de alarme)
+sinais_alarme = [
+    'Abdominal pain', 'Vomiting', 'Bleeding', 'Mucosal bleeding',
+    'Lethargy', 'Hepatomegaly', 'Plasma leakage', 'Shock',
+    'Impaired consciousness'
+]
+
 df_dengue_only = df[df['DIAGNOSTICO'] == 'Dengue'].copy()
-# Simular coluna de risco (para demonstração)
-np.random.seed(42)
-df_dengue_only['RISCO'] = np.random.choice([0,1], size=len(df_dengue_only), p=[0.7,0.3])
-X_risk = df_dengue_only[feature_cols]   # mesmas features
+presentes = [s for s in sinais_alarme if s in df_dengue_only.columns]
+df_dengue_only['num_alarme'] = df_dengue_only[presentes].sum(axis=1)
+df_dengue_only['RISCO'] = (df_dengue_only['num_alarme'] >= 2).astype(int)
+
+print("\nDistribuição do risco da dengue (regra clínica):")
+print(df_dengue_only['RISCO'].value_counts(normalize=True))
+
+X_risk = df_dengue_only[feature_cols]
 y_risk = df_dengue_only['RISCO']
 
-X_risk_train, X_risk_test, y_risk_train, y_risk_test = train_test_split(X_risk, y_risk, test_size=0.3, random_state=42, stratify=y_risk)
+X_risk_train, X_risk_test, y_risk_train, y_risk_test = train_test_split(
+    X_risk, y_risk, test_size=0.3, random_state=42, stratify=y_risk
+)
+
 scaler_risk = StandardScaler()
 X_risk_train_scaled = scaler_risk.fit_transform(X_risk_train)
 X_risk_test_scaled = scaler_risk.transform(X_risk_test)
-X_risk_train_bal, y_risk_train_bal = SMOTE(random_state=42).fit_resample(X_risk_train_scaled, y_risk_train)
+
+smote_risk = SMOTE(random_state=42)
+X_risk_train_bal, y_risk_train_bal = smote_risk.fit_resample(X_risk_train_scaled, y_risk_train)
 
 rf_risk = RandomForestClassifier(n_estimators=200, max_depth=10, random_state=42, n_jobs=-1)
 rf_risk.fit(X_risk_train_bal, y_risk_train_bal)
+
 xgb_risk = XGBClassifier(n_estimators=150, max_depth=6, learning_rate=0.05, random_state=42, eval_metric='logloss')
 xgb_risk.fit(X_risk_train_bal, y_risk_train_bal)
+
 y_risk_pred_rf = rf_risk.predict(X_risk_test_scaled)
 y_risk_pred_xgb = xgb_risk.predict(X_risk_test_scaled)
 
-print("\n=== Modelo 2 - Risco ===")
+print("\n=== Modelo 2 - Risco da Dengue ===")
 print(f"RF - Acurácia: {accuracy_score(y_risk_test, y_risk_pred_rf):.4f}")
 print(f"XGB - Acurácia: {accuracy_score(y_risk_test, y_risk_pred_xgb):.4f}")
+
 best_risk = xgb_risk if f1_score(y_risk_test, y_risk_pred_xgb) >= f1_score(y_risk_test, y_risk_pred_rf) else rf_risk
 
-# 9. Salvar artefatos (incluindo a lista de feature names)
+# 9. Salvar artefatos
 os.makedirs('models', exist_ok=True)
 joblib.dump(best_disease, 'models/modelo_doenca.pkl')
 joblib.dump(scaler_disease, 'models/scaler_doenca.pkl')
 joblib.dump(le_disease, 'models/label_encoder_doenca.pkl')
 joblib.dump(best_risk, 'models/modelo_risco.pkl')
 joblib.dump(scaler_risk, 'models/scaler_risco.pkl')
-joblib.dump(feature_cols, 'models/feature_names.pkl')   # salvar nomes das features
+joblib.dump(feature_cols, 'models/feature_names.pkl')
 
 print("\n✅ Artefatos salvos em 'models/'")
